@@ -18,7 +18,7 @@ worktree_of() {  # $1 = ticket folder; finds worktrees on branch ticket/<folder>
 check() {
   local now id t s started age wt w
   now=$(date +%s)
-  while IFS=$'\t' read -r id t s _ _ _ started; do
+  while IFS=$'\t' read -r id t s _ _ _ _ started; do
     [[ $s == running && $started =~ ^[0-9]+$ ]] || continue
     age=$(( (now - started) / 60 ))
     (( age >= LONG_MIN )) && echo "LONG $id (${age}m)"
@@ -31,8 +31,8 @@ check() {
     done <<< "$wt"
     echo "STALE $id (no change ${STALE_MIN}m)"
   done < <(awk -F'|' '/^\| *[0-9]/ {
-             for (i = 2; i <= 8; i++) gsub(/^ +| +$/, "", $i)
-             print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 }' "$BOARD")
+             for (i = 2; i <= 9; i++) gsub(/^ +| +$/, "", $i)
+             print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 "\t" $9 }' "$BOARD")
 }
 
 [[ -f $BOARD ]] || { echo "board not found: $BOARD" >&2; exit 1; }

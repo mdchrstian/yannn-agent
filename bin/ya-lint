@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Ticket quality check, zero tokens. Catches tickets that would give a meaningless PASS.
+#   ya-lint <ticket folder> [...]      e.g. ya-lint specs/tickets/01-login
+#   ya-lint --all                      every ticket on the board
+# Prints "ok <folder>" or one line per problem; exit 1 if any problem.
+set -uo pipefail
+root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+if [[ ${1:-} == --all ]]; then
+  set -- "$root"/specs/tickets/*/
+  [[ -d $1 ]] || { echo "no tickets in $root/specs/tickets"; exit 1; }
+fi
+[[ $# -gt 0 ]] || { echo "usage: ya-lint <ticket folder>... | --all" >&2; exit 1; }
+
+fail=0
+for t in "$@"; do
+  t=${t%/}; [[ -d $t ]] || t="$root/$t"
+  name=$(basename "$t")
+  python3 -I - "$t" "$name" <<'PY' || fail=1
+import re, sys, os
+t, name = sys.argv[1], sys.argv[2]
+probs = []
+def read(f):
+    p = os.path.join(t, f)
+    return open(p, encoding="utf-8").read().splitlines() if os.path.isfile(p) else None
+spec, ev = read("spec.md"), read("eval.md")
+if spec is None: probs.append("spec.md missing")
+if ev is None: probs.append("eval.md missing")
+if spec is None or ev is None:
+    print("\n".join("%s: %s" % (name, p) for p in probs)); sys.exit(1)
+
+def sect(lines, title):
+    out, on = [], False
+    for l in lines:
+        if l.startswith("## "):
+            on = l[3:].strip().lower() == title; continue
+        if on: out.append(l)
+    return out
+
+if len(spec) > 80: probs.append("spec.md has %d lines (max 80)" % len(spec))
+if len(ev) > 40: probs.append("eval.md has %d lines (max 40)" % len(ev))
+for f, lines in (("spec.md", spec), ("eval.md", ev)):
+    for i, l in enumerate(lines, 1):
+        found = re.findall(r"<[^<>`]{2,80}>", re.sub(r"`[^`]*`", "", l))
+        for code in re.findall(r"`([^`]*)`", l):   # inside code: only phrase-like <...>, not <Button />
+            found += [m for m in re.findall(r"<[^<>]{2,80}>", code) if " " in m and not re.search(r'[=/"]', m)]
+        for m in found:
+            if m not in ("<gate>", "<page>", "<gate> <page>") and not m.startswith("<!--"):
+                probs.append("%s:%d placeholder left: %s" % (f, i, m))
+
+head = "\n".join(spec[:6])
+for flag in ("ui", "tdd", "review"):
+    if not re.search(r"^%s:\s*\S+" % flag, head, re.M):
+        probs.append("spec.md: header line '%s: ...' missing" % flag)
+
+reqs = [l for l in sect(spec, "requirements") if re.match(r"\s*-\s+\S", l)]
+touch = [l for l in sect(spec, "touch") if re.match(r"\s*-\s*`", l)]
+if not reqs: probs.append("spec.md: no Requirements")
+if not touch: probs.append("spec.md: Touch lists no `path`")
+
+rows = []
+for l in sect(ev, "checks"):
+    c = [x.strip() for x in l.strip().strip("|").split("|")]
+    if len(c) >= 4 and c[0].isdigit():
+        rows.append(c)
+if len(rows) < len(reqs):
+    probs.append("eval.md: %d checks for %d requirements (each requirement needs a check)" % (len(rows), len(reqs)))
+vague = re.compile(r"^(it )?(works?|ok|correct(ly)?|good|fine|as expected|looks (good|right|fine)|passes|no errors?)\.?$", re.I)
+for c in rows:
+    exp = c[3]
+    if not exp: probs.append("eval.md check #%s: Expected is empty" % c[0])
+    elif vague.match(exp) or len(exp) < 6:
+        probs.append("eval.md check #%s: Expected '%s' is too vague; say what is seen or returned" % (c[0], exp))
+
+how = "\n".join(sect(ev, "how to verify"))
+if not re.search(r"`[^`]{3,}`", how):
+    probs.append("eval.md: How to verify has no runnable `command`")
+if re.search(r"^ui:\s*(yes|landing)", head, re.M) and "{PORT}" not in how:
+    probs.append("eval.md: UI ticket, but the dev command has no {PORT}")
+
+if probs:
+    print("\n".join("%s: %s" % (name, p) for p in probs)); sys.exit(1)
+print("ok %s" % name)
+PY
+done
+exit $fail

@@ -19,7 +19,8 @@ workers follow it more exactly), except `Goal`, which stays in the user's langua
 - A `specs/plan/*.md` file from brainstorm or grill: its Goal, Must have, Not doing and
   Decisions are settled. Do not re-ask them. Only ask what splitting into tickets needs.
 - Anything else: map the project with `yannn-agent:scout`, never by reading files
-  yourself (stack, test command, dev server command, what can be reused, files touched).
+  yourself (stack, test command, dev server command and its port flag, what can be
+  reused, files touched).
   If `ya-graph status` says fresh, tell scout to use the graph. Play the request back in
   max 5 lines and ask only questions whose answer changes what gets built: up to 4 per
   AskUserQuestion call, multiple choice, simplest option first and marked (Recommended).
@@ -43,17 +44,30 @@ Board `UI` column:
 Set `tdd: yes` only for logic where a wrong answer is costly: money, permissions,
 parsing, dates, data migration.
 
+Set `review: yes` (board `Rev` = yes) only when a bug would hurt: money, login or
+permissions, data that can be lost, migrations, untrusted input (forms, uploads, APIs).
+An Opus reviewer then reads the diff before merge. Everything else `review: no`.
+
 # 4. Write (goal-driven: every requirement gets a check that proves it)
 For each ticket create `specs/tickets/<NN>-<slug>/`:
 - `spec.md` from `templates/spec.md` (hard limit 80 lines)
 - `eval.md` from `templates/eval.md` (hard limit 40 lines, every check runnable)
 - `contract.md` from `templates/contract.md` only when Mode = team
 Create or update `specs/tickets/board.md` from `templates/board.md`. New tickets start as
-`draft`. Runs: `alongside` or `after:<IDs> (<reason>)`.
+`draft`. Runs: `alongside` or `after:<IDs> (<reason>)`. UI and Rev match the spec header.
 
-spec.md: "Touch" lists exact paths. "Do not touch" lists what must stay as is. "Reuse"
-lists existing code to build on. "Decisions" copies every settled choice, so the worker
-never re-asks. No essays, no restating the PRD.
+spec.md: "Touch" lists exact paths (a directory with a trailing `/` covers its files;
+add package.json only if a dependency is truly needed). The ya-guard hook blocks workers
+from writing anywhere else, except test files and the ticket folder. "Do not touch" lists
+what must stay as is. "Reuse" lists existing code to build on. "Decisions" copies every
+settled choice, so the worker never re-asks. No essays, no restating the PRD.
+
+eval.md: one check per requirement at least. Expected says what is seen or returned
+("shows 'Wrong password' under the field", "returns 401"), never "works". UI tickets:
+the dev command uses `{PORT}` with the framework's own flag (for example
+`npm run dev -- --port {PORT}`, `next dev -p {PORT}`); ya-serve fills it in.
+
+Then run `ya-lint --all` and fix every line it prints before going on.
 
 # 5. Hand over
 Run `ya-board show`. Ask with AskUserQuestion (multiSelect) which tickets to build now

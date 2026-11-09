@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Dev server per ticket on its own port, so parallel UI tickets never clash. Zero tokens.
+#   ya-serve start <ID> "<command with {PORT}>"   prints http://localhost:<port> or FAIL + log
+#   ya-serve stop <ID>
+#   ya-serve port <ID>                            print the port only
+# Port = 3100 + ticket number, moved up while taken. PORT is also exported.
+set -uo pipefail
+dir="${TMPDIR:-/tmp}"; dir=${dir%/}
+cmd=${1:-}; id=${2:-}
+[[ -n $cmd && -n $id ]] || { echo "usage: ya-serve start <ID> \"<cmd with {PORT}>\" | stop <ID> | port <ID>" >&2; exit 1; }
+num=$(printf '%s' "$id" | tr -cd '0-9'); num=$((10#${num:-0}))
+pidf="$dir/ya-serve-$id.pid"; logf="$dir/ya-serve-$id.log"; portf="$dir/ya-serve-$id.port"
+
+taken() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+pick() { local p=$((3100 + num)); while taken "$p"; do p=$((p + 100)); done; echo "$p"; }
+
+stop() {
+  [[ -f $pidf ]] || { echo "stopped $id (was not running)"; return 0; }
+  local pid; pid=$(cat "$pidf")
+  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+  sleep 1; kill -KILL -- "-$pid" 2>/dev/null || true
+  rm -f "$pidf" "$portf"; echo "stopped $id"
+}
+
+case $cmd in
+  port) [[ -f $portf ]] && cat "$portf" || pick ;;
+  stop) stop ;;
+  start)
+    run=${3:?command required}
+    [[ -f $pidf ]] && stop >/dev/null
+    port=$(pick); run=${run//\{PORT\}/$port}
+    # set -m gives the server its own process group, so stop kills its children too
+    ( set -m; PORT=$port nohup sh -c "$run" >"$logf" 2>&1 & echo $! >"$pidf" )
+    echo "$port" >"$portf"
+    for _ in $(seq 1 60); do
+      if curl -s -o /dev/null --max-time 2 "http://localhost:$port"; then echo "http://localhost:$port"; exit 0; fi
+      kill -0 "$(cat "$pidf")" 2>/dev/null || break
+      sleep 1
+    done
+    echo "FAIL $id: server not answering on $port"; tail -n 20 "$logf"; stop >/dev/null; exit 1 ;;
+  *) echo "usage: ya-serve start|stop|port <ID>" >&2; exit 1 ;;
+esac

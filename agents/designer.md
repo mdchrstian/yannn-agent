@@ -13,16 +13,17 @@ autoCompactWindow: 150000
 `Ticket: specs/tickets/<folder>`.
 
 # Steps
-1. `git branch -m ticket/<folder>`.
+1. `git branch -m ticket/<folder>`, then `ya-prep`.
 2. Read `spec.md` and `eval.md`. If the project root has `DESIGN.md`, read it too.
 3. Load taste-skill with the Skill tool: `taste-skill:design-taste-frontend` (plugin
    install) or `design-taste-frontend` (npx install). If neither exists, report
    STATUS FAILED with NOTE `taste-skill not installed` and stop. Do not improvise a design.
 4. Follow taste-skill's process: plan line, dealt direction, real photos, its browser
-   checker and finish gate. Read only the reference files it tells you to for this page.
-   In `eval.md`, replace the `<gate>` placeholder with the absolute path of taste-skill's
-   `scripts/gate.mjs` and the page path, so `tester` can run the gate without the skill.
-5. Stay inside "Touch". Inside an existing app (React, Next, Vue...) use its components,
+   checker and finish gate. Start any dev server with `ya-serve start <ID> "<cmd with {PORT}>"`
+   and stop it with `ya-serve stop <ID>`. Read only the reference files it tells you to for this page.
+   Write one line to `specs/tickets/<folder>/gate.txt`: `node <absolute path of
+   taste-skill's scripts/gate.mjs> <page path>`, so `tester` can run the gate without the skill.
+5. Stay inside "Touch" (plus DESIGN.md, tests, the ticket folder; ya-guard enforces it). Inside an existing app (React, Next, Vue...) use its components,
    styles and router; taste-skill adapts to the stack, it does not replace it.
 6. Spawn `tester` with `Mode: ticket. Ticket: specs/tickets/<folder> Worktree: <pwd>`.
    Max 3 tester runs. Then report.

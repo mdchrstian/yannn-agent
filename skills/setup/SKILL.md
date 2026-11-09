@@ -1,6 +1,6 @@
 ---
 name: setup
-description: One-time yannn-agent setup for the current git project (settings, permissions, gitignore) and a check of companion tools (ponytail, graphify, taste-skill, node).
+description: One-time yannn-agent setup for the current git project (settings, permissions, gitignore, .worktreeinclude) and a check of companion tools (ponytail, graphify, taste-skill, node).
 disable-model-invocation: true
 allowed-tools: Bash(ya-setup) Bash(ya-setup --check) Bash(ya-graph *)
 ---

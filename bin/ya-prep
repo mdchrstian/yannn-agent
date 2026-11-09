@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Make a fresh worktree runnable: dependencies from the main checkout, zero tokens.
+#   ya-prep            run inside a worktree
+# Clones main's node_modules / .venv copy-on-write when the lockfile is identical
+# (seconds, no extra disk, independent of main). Otherwise does a real install.
+# .env files arrive through .worktreeinclude (written by ya-setup).
+set -uo pipefail
+here=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "prep: not a git repo"; exit 1; }
+main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+[[ $here == "$main" ]] && { echo "prep: main checkout, nothing to do"; exit 0; }
+
+log=$(mktemp -t ya-prep.XXXXXX)
+clone() {  # $1 = dir name; copy-on-write clone from main
+  rm -rf "${here:?}/$1"
+  if [[ $(uname) == Darwin ]]; then cp -cR "$main/$1" "$here/$1" 2>>"$log" || cp -R "$main/$1" "$here/$1" 2>>"$log"
+  else cp -R --reflink=auto "$main/$1" "$here/$1" 2>>"$log"; fi
+}
+run() {  # $1 = label, rest = command
+  local label=$1; shift
+  if (cd "$here" && "$@") >>"$log" 2>&1; then echo "prep: $label"; else echo "prep: FAIL $label"; tail -n 15 "$log"; exit 1; fi
+}
+same() { [[ -f $main/$1 && -f $here/$1 ]] && cmp -s "$main/$1" "$here/$1"; }
+
+did=0
+# --- Node ---
+if [[ -f $here/package.json ]]; then
+  did=1
+  lock=""; for f in pnpm-lock.yaml yarn.lock bun.lockb bun.lock package-lock.json; do [[ -f $here/$f ]] && { lock=$f; break; }; done
+  if [[ -n $lock && -d $main/node_modules ]] && same "$lock"; then
+    n=0  # root plus workspace packages (monorepos), max 3 levels deep
+    while IFS= read -r d; do
+      rel=${d#"$main"/}; [[ -d $here/$(dirname "$rel") ]] || continue
+      clone "$rel"; n=$((n + 1))
+    done < <(find "$main" -maxdepth 3 -name node_modules -type d -prune -not -path '*/.claude/*' 2>/dev/null)
+    echo "prep: cloned $n node_modules ($lock unchanged)"
+  else
+    case $lock in
+      pnpm-lock.yaml)       run "pnpm install ($lock changed or no node_modules in main)" pnpm install --frozen-lockfile ;;
+      yarn.lock)            run "yarn install" yarn install --frozen-lockfile ;;
+      bun.lockb|bun.lock)   run "bun install" bun install ;;
+      package-lock.json)    run "npm ci" npm ci --no-audit --no-fund ;;
+      *)                    run "npm install (no lockfile)" npm install --no-audit --no-fund ;;
+    esac
+  fi
+fi
+# --- Python ---
+if [[ -f $here/pyproject.toml || -f $here/requirements.txt ]]; then
+  did=1
+  lock=""; for f in uv.lock poetry.lock requirements.txt; do [[ -f $here/$f ]] && { lock=$f; break; }; done
+  if [[ -n $lock && -d $main/.venv ]] && same "$lock"; then
+    clone .venv && echo "prep: cloned .venv ($lock unchanged)"
+  elif [[ $lock == uv.lock ]] && command -v uv >/dev/null; then run "uv sync" uv sync
+  elif [[ $lock == poetry.lock ]] && command -v poetry >/dev/null; then run "poetry install" poetry install
+  elif [[ -f $here/requirements.txt ]]; then
+    run "pip install -r requirements.txt" sh -c 'python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt'
+  else echo "prep: python project without a known lockfile, install manually"
+  fi
+fi
+(( did )) || echo "prep: nothing to do"
+for f in .env .env.local; do
+  [[ -f $main/$f && ! -f $here/$f ]] && echo "prep: warn $f missing here; add it to .worktreeinclude"
+done
+rm -f "$log"
+exit 0

@@ -1,6 +1,7 @@
 # <NN> <Feature name>
 ui: no|yes|landing
 tdd: no|yes
+review: no|yes
 
 ## Goal
 <1 to 3 sentences in the user's language: what the user can do after this ticket>
@@ -13,6 +14,7 @@ tdd: no|yes
 
 ## Touch
 - `path/to/file.ts`  <what changes>
+- `path/to/dir/`  <every file inside may change>
 
 ## Do not touch
 - `path/or/area`  <why>

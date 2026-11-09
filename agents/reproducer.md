@@ -16,7 +16,7 @@ autoCompactWindow: 120000
 No fix without a root cause. A fix for a symptom you cannot explain is a guess.
 
 # Steps
-1. `git branch -m fix/<short-slug>`.
+1. `git branch -m fix/<short-slug>`, then `ya-prep`.
 2. Read the error. All of it: message, file, line, stack. It often names the cause.
 3. Reproduce with the smallest command or browser step possible. Not reproducible: gather
    one more piece of evidence (a log line at each layer boundary), do not guess.

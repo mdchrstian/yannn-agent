@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
 # Board helper. The router calls this instead of reading/editing board.md itself,
 # so it only ever sees a few compact lines. Works with macOS bash 3.2.
-#   ya-board next | set <ID> <status> | show [status] | folder <ID> | commit
+#   ya-board next | set <ID> <status> | show [status] | folder <ID> | commit | base
 set -euo pipefail
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 BOARD="${BOARD:-$root/specs/tickets/board.md}"
 [[ -f "$BOARD" ]] || { echo "board not found: $BOARD (run /yannn-agent:plan first)" >&2; exit 1; }
+grep -qE '^\| *ID *\|.*\| *Rev *\|' "$BOARD" || { echo "old board format (no Rev column): re-run /yannn-agent:plan, or add a Rev column (yes|no) after UI" >&2; exit 1; }
 
 # Ticket rows only: lines starting with "| <digit>". Columns:
-# ID | Ticket | Status | Mode | Runs | UI | Started
+# ID | Ticket | Status | Mode | Runs | UI | Rev | Started
 rows() {
   awk -F'|' '/^\| *[0-9]/ {
-    for (i = 2; i <= 8; i++) gsub(/^ +| +$/, "", $i)
-    print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8
+    for (i = 2; i <= 9; i++) gsub(/^ +| +$/, "", $i)
+    print $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 "\t" $9
   }' "$BOARD"
 }
 
 # Ready tickets whose "after:" dependencies are all done.
 cmd_next() {
   rows | awk -F'\t' '
-    { id[NR] = $1; t[NR] = $2; s[NR] = $3; m[NR] = $4; r[NR] = $5; u[NR] = $6; st[$1] = $3 }
+    { id[NR] = $1; t[NR] = $2; s[NR] = $3; m[NR] = $4; r[NR] = $5; u[NR] = $6; v[NR] = $7; st[$1] = $3 }
     END {
       for (i = 1; i <= NR; i++) {
         if (s[i] != "ready") continue
@@ -29,7 +30,7 @@ cmd_next() {
           n = split(substr(dep, 7), d, ",")
           for (k = 1; k <= n; k++) if (st[d[k]] != "done") ok = 0
         }
-        if (ok) printf "%s\t%s\t%s\tui=%s\n", id[i], t[i], m[i], u[i]
+        if (ok) printf "%s\t%s\t%s\tui=%s\trev=%s\n", id[i], t[i], m[i], u[i], v[i]
       }
     }'
 }
@@ -41,7 +42,7 @@ cmd_set() {
   awk -F'|' -v OFS='|' -v id="$id" -v new="$new" -v ts="$ts" '
     /^\| *[0-9]/ {
       x = $2; gsub(/ /, "", x)
-      if (x == id) { $4 = " " new " "; $8 = (new == "running") ? " " ts " " : " - "; hit = 1 }
+      if (x == id) { $4 = " " new " "; $9 = (new == "running") ? " " ts " " : " - "; hit = 1 }
     }
     { print }
     END { if (!hit) exit 3 }' "$BOARD" > "$BOARD.tmp" || { rm -f "$BOARD.tmp"; echo "no ticket $id" >&2; exit 1; }
@@ -51,7 +52,7 @@ cmd_set() {
 
 cmd_show() {
   local f=${1:-}
-  rows | awk -F'\t' -v f="$f" 'f == "" || $3 == f { printf "%-4s %-28s %-8s %-5s %-6s %s\n", $1, $2, $3, $4, $6, $5 }'
+  rows | awk -F'\t' -v f="$f" 'f == "" || $3 == f { printf "%-4s %-28s %-8s %-5s ui=%-7s rev=%-3s %s\n", $1, $2, $3, $4, $6, $7, $5 }'
 }
 
 cmd_folder() { rows | awk -F'\t' -v id="${1:?ID required}" '$1 == id { print $2 }'; }
@@ -68,5 +69,6 @@ case "${1:-show}" in
   show)   cmd_show "${2:-}" ;;
   folder) cmd_folder "${2:-}" ;;
   commit) cmd_commit ;;
-  *) echo "usage: ya-board next|set <ID> <status>|show [status]|folder <ID>|commit" >&2; exit 1 ;;
+  base)   git -C "$root" branch --show-current ;;
+  *) echo "usage: ya-board next|set <ID> <status>|show [status]|folder <ID>|commit|base" >&2; exit 1 ;;
 esac

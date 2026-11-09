@@ -1,7 +1,7 @@
 {
   "name": "yannn-agent",
   "displayName": "Yannn Agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Token-efficient think-then-build workflow: brainstorm, grill and plan in your session, then an Opus router hands tickets to Sonnet workers in worktrees, with Haiku for search and tests. Ponytail keeps the code small.",
   "author": {
     "name": "mdchrstian",

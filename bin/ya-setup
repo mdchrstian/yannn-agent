@@ -45,7 +45,7 @@ env.setdefault("PONYTAIL_SUBAGENT_MATCHER", "worker|designer|reproducer")  # rul
 env.setdefault("PONYTAIL_MAP", "0")                                # scout + graph already map the repo
 perm = s.setdefault("permissions", {})
 allow = perm.setdefault("allow", [])
-for tool in ["ya-board", "ya-watchdog", "ya-merge", "ya-graph"]:
+for tool in ["ya-board", "ya-watchdog", "ya-merge", "ya-graph", "ya-prep", "ya-serve", "ya-lint"]:
     for rule in (f"Bash({tool})", f"Bash({tool} *)"):
         if rule not in allow: allow.append(rule)
 deny = perm.setdefault("deny", [])
@@ -57,8 +57,14 @@ PY
 
 # --- gitignore: generated output never goes into commits ---
 touch .gitignore
-for line in "graphify-out/" ".taste-skill/"; do
+for line in "graphify-out/" ".taste-skill/" ".claude/worktrees/"; do
   grep -qxF "$line" .gitignore || { echo "$line" >> .gitignore; ok "gitignore += $line"; }
+done
+
+# --- .worktreeinclude: Claude Code copies these gitignored files into every worktree ---
+touch .worktreeinclude
+for line in ".env" ".env.local" ".env.*.local"; do
+  grep -qxF "$line" .worktreeinclude || { echo "$line" >> .worktreeinclude; ok "worktreeinclude += $line"; }
 done
 
 mkdir -p specs/tickets

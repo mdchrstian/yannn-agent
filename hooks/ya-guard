@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# PreToolUse guard: turns yannn-agent's prompt rules into enforced rules. Zero tokens.
+# Only acts on yannn-agent's own agents; every other session exits on the fast path.
+# Fails open: any error allows the call, so the guard can never break a session.
+input=$(cat)
+case $input in *'"agent_type":"yannn-agent:'*|*'"agent_type": "yannn-agent:'*) ;; *) exit 0 ;; esac
+command -v python3 >/dev/null 2>&1 || exit 0
+
+YA_INPUT=$input python3 -I - <<'PY' 2>/dev/null; exit 0
+import fnmatch, json, os, re, subprocess, sys
+
+def deny(reason):
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+          "permissionDecision": "deny", "permissionDecisionReason": "yannn-agent guard: " + reason}}))
+    sys.exit(0)
+
+try:
+    d = json.loads(os.environ["YA_INPUT"])
+except Exception:
+    sys.exit(0)
+agent = d.get("agent_type", "").split(":", 1)[-1]
+tool = d.get("tool_name", "")
+ti = d.get("tool_input") or {}
+cwd = d.get("cwd") or os.getcwd()
+path = ti.get("file_path") or ti.get("notebook_path") or ti.get("path") or ""
+WRITE = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+def git(*a):
+    try:
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True, timeout=3).stdout.strip()
+    except Exception:
+        return ""
+
+# ---------------- router: coordinates only, never touches code ----------------
+if agent == "router":
+    if tool in WRITE:
+        deny("the router never edits files. Send the change to a worker.")
+    if tool in ("Grep", "Glob"):
+        deny("the router never searches code. Spawn scout if a fact is needed.")
+    if tool == "Read":
+        p = path.replace("\\", "/")
+        if p.endswith("/eval-result.md") or re.search(r"/specs/tickets/[^/]+/spec\.md$", p):
+            sys.exit(0)
+        deny("the router may Read only eval-result.md and a team spec's Split section.")
+    if tool == "Bash":
+        cmd = ti.get("command", "")
+        if "$(" in cmd or "`" in cmd:
+            deny("no command substitution in router commands.")
+        for part in re.split(r"&&|\|\||;|\n", cmd):
+            segs = [s.strip() for s in part.split("|") if s.strip()]
+            if not segs:
+                continue
+            if not (segs[0].startswith("ya-") or re.match(r"echo\b", segs[0])):
+                deny("the router runs only ya-* commands (ya-board, ya-merge, ya-lint, ya-graph, ya-watchdog).")
+            for s in segs[1:]:
+                if not re.match(r"(head|tail|grep|wc)\b", s):
+                    deny("pipe ya-* output only into head, tail, grep or wc.")
+    sys.exit(0)
+
+if tool not in WRITE or not path:
+    sys.exit(0)
+
+root = git("rev-parse", "--show-toplevel") or cwd
+ap = os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
+rroot = os.path.realpath(root)
+if not (ap == rroot or ap.startswith(rroot + os.sep)):
+    deny("write outside your own worktree (%s). Work only in the worktree." % root)
+rel = os.path.relpath(ap, rroot).replace(os.sep, "/")
+
+# ---------------- tester: writes only its result table ----------------
+if agent == "tester":
+    if rel.endswith("eval-result.md"):
+        sys.exit(0)
+    deny("tester writes only eval-result.md; report failures instead of fixing them.")
+
+# The rules a ticket is graded by are read-only for every agent that builds or tests.
+if re.search(r"(^|/)specs/tickets/(board\.md$|[^/]+/(spec|eval|contract)\.md$)", rel):
+    deny("%s is the ticket's own rules and read-only. If the spec or eval is wrong, report "
+         "NEEDS_DECISION with what is wrong; never change them to make a check pass." % rel)
+
+if agent not in ("worker", "designer"):
+    sys.exit(0)   # reproducer and others: worktree containment above is enough
+
+# ---------------- worker / designer: stay inside the ticket's Touch list ----------------
+branch = git("branch", "--show-current")
+if not branch.startswith("ticket/"):
+    sys.exit(0)   # before the branch rename: nothing to check against yet
+folder = branch[len("ticket/"):]
+specs = os.path.join(rroot, "specs", "tickets")
+if not os.path.isdir(os.path.join(specs, folder)):
+    folder = re.sub(r"-[a-z]$", "", folder)          # team part: ticket/<folder>-<part>
+spec = os.path.join(specs, folder, "spec.md")
+if not os.path.isfile(spec):
+    sys.exit(0)
+
+def section(name):
+    out, on = [], False
+    for line in open(spec, encoding="utf-8"):
+        if line.startswith("## "):
+            on = line[3:].strip().lower() == name
+            continue
+        m = re.match(r"\s*-\s*`([^`]+)`", line)
+        if on and m:
+            out.append(m.group(1).strip().lstrip("./"))
+    return out
+
+def hit(entries):
+    for e in entries:
+        if rel == e or fnmatch.fnmatch(rel, e) or rel.startswith(e.rstrip("/") + "/"):
+            return e
+    return None
+
+bad = hit(section("do not touch"))
+if bad:
+    deny("%s is under 'Do not touch' (%s). Report NEEDS_DECISION if it must change." % (rel, bad))
+if agent == "designer" and rel == "specs/tickets/%s/gate.txt" % folder:
+    sys.exit(0)
+if re.search(r"(^|/)(__tests__|tests?)/|\.(test|spec)\.[^/]+$|(^|/)test_[^/]+\.py$|_test\.go$", rel):
+    sys.exit(0)
+if agent == "designer" and rel == "DESIGN.md":
+    sys.exit(0)
+if hit(section("touch")):
+    sys.exit(0)
+deny("%s is not listed under 'Touch' in %s/spec.md. If it really must change, report "
+     "NEEDS_DECISION with the reason." % (rel, folder))
+PY

@@ -38,9 +38,12 @@ with an empty context. Skip what you don't need: a clear request can go straight
 | `yannn-agent:worker` | Sonnet, medium | Builds one ticket in its own worktree |
 | `yannn-agent:designer` | Sonnet, medium | Builds landing pages with taste-skill |
 | `yannn-agent:reproducer` | Sonnet, medium | Reproduces a bug, finds the root cause, fixes it if small |
+| `yannn-agent:reviewer` | Opus, medium | Reads the diff of risky tickets only (`review: yes`) before merge, max 5 findings |
 | `yannn-agent:scout` | Haiku, high | Code search: graph first, then `rg` |
 | `yannn-agent:tester` | Haiku, high | Runs the checks in `eval.md`, reports only failures |
-| `ya-board`, `ya-watchdog`, `ya-merge`, `ya-graph`, `ya-setup` | no LLM | Scripts in `bin/`, on Claude's PATH while the plugin is on |
+| `ya-board`, `ya-watchdog`, `ya-merge`, `ya-graph`, `ya-setup` | no LLM | Board, stuck-worker alerts, merge, code graph, setup |
+| `ya-prep`, `ya-serve`, `ya-lint` | no LLM | Worktree dependencies, one dev-server port per ticket, ticket quality check |
+| `ya-guard` hook | no LLM | Enforces the rules: router can't read code, workers stay inside Touch |
 
 ## Install
 
@@ -59,11 +62,51 @@ In each project (a git repo with at least one commit), once:
 ```
 A plugin cannot set env vars or permissions, so setup merges them into the project's
 `.claude/settings.json` (your existing keys stay), adds `graphify-out/` and
-`.taste-skill/` to `.gitignore`, and reports which companion tools are missing.
+`.taste-skill/` and `.claude/worktrees/` to `.gitignore`, writes `.worktreeinclude` (so `.env` files reach every
+worktree), and reports which companion tools are missing.
 
 **Upgrading from the old copy-the-`.claude/`-folder version:** delete `router.md`,
 `worker.md`, `tester.md`, `reproducer.md` and `Explore.md` from `.claude/agents/`, plus
 `.claude/skills/ticket/` and `.claude/scripts/`. Your `specs/` folder keeps working.
+
+## Safety rails (zero tokens)
+
+**Worktrees that actually run.** Each worker starts with `ya-prep`. When the lockfile
+matches the main checkout, it clones `node_modules` (and workspace packages, and `.venv`)
+copy-on-write: seconds, no extra disk, and independent of main. When the lockfile changed,
+it runs the real install (npm ci, pnpm, yarn, bun, uv, poetry or pip). `.env` files come
+through `.worktreeinclude`.
+
+**One port per ticket.** `ya-serve start <ID> "<cmd with {PORT}>"` runs the dev server on
+3100 + ticket number (moved up if taken), waits until it answers, and `ya-serve stop`
+cleans it up. Three UI tickets in parallel never fight over port 3000.
+
+**Rules that are enforced, not just asked for.** A `PreToolUse` hook (`ya-guard`) checks
+every tool call from yannn-agent's own agents:
+- router: no edits, no code search, Read only `eval-result.md` and specs, Bash only `ya-*`
+- worker and designer: write only inside their own worktree, only to paths under Touch
+  and test files; anything under "Do not touch" is always blocked
+- nobody but the plan skill changes `spec.md`, `eval.md`, `contract.md` or the board, so
+  an agent can never pass a ticket by rewriting its checks
+- tester: writes only `eval-result.md`, and reports a broken eval command instead of
+  quietly running a different one
+
+A blocked call tells the agent why and what to do instead (usually: report
+NEEDS_DECISION). Other sessions pass straight through in about 6 ms. The guard fails
+open, so it can never break a session. Limit: writes through shell commands (`sed -i`,
+`>`) are not checked.
+
+**Tickets that can fail.** `ya-lint` rejects tickets that would give a meaningless PASS:
+leftover placeholders, fewer checks than requirements, vague expectations like "works",
+no runnable command, a UI ticket without `{PORT}`. The plan skill runs it before
+handover, and the router runs it again before dispatch.
+
+**Code review where it matters.** Tickets about money, login or permissions, data that
+can be lost, migrations or untrusted input get `review: yes`. Before merge, an Opus
+reviewer reads only that ticket's diff (about 400 lines max) and reports at most 5
+findings. MUST findings go back to the same worker for one fix round. Other tickets skip
+review, so Opus tokens are spent only where a bug would hurt. For a full review at any
+time: `/ponytail-review` or `/code-review`.
 
 ## Thinking before building
 
@@ -143,7 +186,7 @@ design skill for landing pages, so their rules don't clash.
 3. Scope is cut before code exists: every ticket has a Not doing list.
 4. The router never reads code. Opus sees only `ya-board` output and the eval table.
 5. Board, watchdog, merge and graph are shell scripts: zero tokens.
-6. Reports have a fixed, short format: worker 7 lines, tester 10, scout 15.
+6. Reports have a fixed, short format: worker 7 lines, tester 10, scout 15, reviewer 7.
 7. Wide searches go to Haiku, and graph answers are capped at 600 tokens.
 8. Fixes go back to the same worker through SendMessage, while its context and cache
    are still warm.
@@ -155,10 +198,17 @@ design skill for landing pages, so their rules don't clash.
 
 ## Good to know
 
-- Tested: the manifest passes `claude plugin validate`; every agent and skill loads; a
-  clean install pulls in Ponytail; taste-skill installs from this marketplace; all five
-  scripts pass on macOS's built-in bash 3.2. **Not tested yet: a full batch with real
-  agents.**
+- Tested end to end on a small Node project (2 tickets: a UI route and a `review: yes`
+  money function), with Opus router, Sonnet workers, Haiku testers and Ponytail loaded:
+  - Run 1, $0.71: both tickets merged, `ya-prep` cloned node_modules in each worktree,
+    the UI ticket served on port 3101, the reviewer ran only on the money ticket. It also
+    exposed a hole (a worker could edit its own eval.md to pass), now blocked by the guard.
+  - Run 2, $0.36: a deliberately broken test command was reported as broken, the worker
+    came back with NEEDS_DECISION instead of changing the rules, and the router held the
+    ticket as blocked while merging the other one.
+  - Not tested yet: designer + taste-skill, team mode, graphify on a large repo, and
+    anything bigger than a toy project.
+- All scripts and the guard pass their tests on macOS's built-in bash 3.2.
 - `ya-board` and the other scripts are on Claude's PATH, not in your own terminal. Ask
   Claude, for example "mark ticket 02 ready".
 - Plugins can't set `permissionMode`, so start the router with
