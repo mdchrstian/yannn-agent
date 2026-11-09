@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# One-time project setup. A plugin cannot set env vars or permissions, so this
+# merges them into <project>/.claude/settings.json (existing keys are kept).
+#   ya-setup          apply
+#   ya-setup --check  only report what is installed
+set -uo pipefail
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "FAIL not a git repo: run 'git init' first"; exit 1; }
+cd "$root"
+
+ok()   { printf 'ok    %s\n' "$1"; }
+warn() { printf 'warn  %s\n' "$1"; }
+
+# --- checks (all optional except git) ---
+ok "git repo: $root"
+if ls -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/*/ponytail >/dev/null 2>&1; then ok "ponytail"; else warn "ponytail missing: claude plugin install ponytail@yannn-agent"; fi
+git rev-parse --verify -q HEAD >/dev/null || warn "no commit yet: make one commit so worktrees have a base"
+if command -v graphify >/dev/null 2>&1; then
+  ok "graphify $(graphify --version 2>/dev/null | head -n 1)"
+  [[ -f graphify-out/graph.json ]] && ok "code graph exists" || warn "no code graph yet: run 'ya-graph update' (big repos only)"
+else
+  warn "graphify not installed (optional, big repos): uv tool install graphifyy"
+fi
+node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+(( node_major >= 22 )) && ok "node $node_major (taste-skill needs 22+)" || warn "node 22+ missing: taste-skill cannot run its browser checks"
+if ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/*/taste-skill >/dev/null 2>&1 || [[ -d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/skills/design-taste-frontend || -d .claude/skills/design-taste-frontend ]]; then
+  ok "taste-skill"
+else
+  warn "taste-skill not installed (optional, landing pages): claude plugin install taste-skill@yannn-agent"
+fi
+
+[[ ${1:-} == --check ]] && exit 0
+
+# --- settings.json merge ---
+mkdir -p .claude
+python3 - "$root/.claude/settings.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+s = json.load(open(p)) if os.path.exists(p) else {}
+env = s.setdefault("env", {})
+env.setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "claude-sonnet-5-5")    # default only; agent files still win
+env.setdefault("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "2")
+env.setdefault("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "6")
+env.setdefault("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", "1")     # scout (Haiku) replaces Explore
+env.setdefault("PONYTAIL_SUBAGENT_MATCHER", "worker|designer|reproducer")  # rules only where code is written
+env.setdefault("PONYTAIL_MAP", "0")                                # scout + graph already map the repo
+perm = s.setdefault("permissions", {})
+allow = perm.setdefault("allow", [])
+for tool in ["ya-board", "ya-watchdog", "ya-merge", "ya-graph"]:
+    for rule in (f"Bash({tool})", f"Bash({tool} *)"):
+        if rule not in allow: allow.append(rule)
+deny = perm.setdefault("deny", [])
+for rule in ["Agent(general-purpose)", "Bash(git push *)"]:
+    if rule not in deny: deny.append(rule)
+json.dump(s, open(p, "w"), indent=2); open(p, "a").write("\n")
+print("ok    .claude/settings.json updated")
+PY
+
+# --- gitignore: generated output never goes into commits ---
+touch .gitignore
+for line in "graphify-out/" ".taste-skill/"; do
+  grep -qxF "$line" .gitignore || { echo "$line" >> .gitignore; ok "gitignore += $line"; }
+done
+
+mkdir -p specs/tickets
+echo "done. Next: /yannn-agent:brainstorm <idea>  (or /yannn-agent:plan if the plan is clear)"

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "yannn-agent",
+  "description": "Yannn Agent and the companion plugins it works with.",
+  "owner": {
+    "name": "mdchrstian",
+    "url": "https://github.com/mdchrstian"
+  },
+  "plugins": [
+    {
+      "name": "yannn-agent",
+      "description": "Brainstorm, grill and plan, then an Opus router hands tickets to Sonnet workers. Installs Ponytail with it.",
+      "source": "./",
+      "category": "productivity"
+    },
+    {
+      "name": "ponytail",
+      "description": "Lazy senior dev mode: the simplest, shortest solution that works. By Dietrich Gebert, MIT. Installed automatically with yannn-agent.",
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      },
+      "category": "productivity"
+    },
+    {
+      "name": "taste-skill",
+      "description": "Optional. Design taste for landing pages, checked in a real browser. By leonxlnx, MIT. Used by yannn-agent's designer.",
+      "source": {
+        "source": "github",
+        "repo": "Leonxlnx/taste-skill"
+      },
+      "skills": [
+        "./skills/taste-skill"
+      ],
+      "category": "design"
+    }
+  ]
+}

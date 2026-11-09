@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Thin wrapper around graphify (github.com/safishamsi/graphify), optional.
+# The graph lives in the MAIN checkout, so workers in worktrees share one graph.
+#   ya-graph status                  fresh | missing | not-installed
+#   ya-graph update                  rebuild code graph (tree-sitter AST, no LLM, zero tokens)
+#   ya-graph q "<question>" [budget] scoped subgraph, output capped (default 600 tokens)
+#   ya-graph affected "<symbol>"     what breaks if <symbol> changes (callers, importers)
+#   ya-graph explain "<symbol>"      one node and its neighbours
+# exit 4 = no graph or graphify missing: caller falls back to rg.
+set -uo pipefail
+command -v graphify >/dev/null 2>&1 || { echo "not-installed"; exit 4; }
+
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "not a git repo"; exit 4; }
+main=$(dirname "$common")
+graph="$main/graphify-out/graph.json"
+
+need_graph() { [[ -f $graph ]] || { echo "missing (run: ya-graph update)"; exit 4; }; }
+
+case "${1:-status}" in
+  status)   [[ -f $graph ]] && echo "fresh: $graph" || { echo "missing"; exit 4; } ;;
+  update)   graphify update "$main" 2>&1 | tail -n 3 ;;
+  q|query)  need_graph; graphify query "${2:?question required}" --budget "${3:-600}" --graph "$graph" ;;
+  affected) need_graph; graphify affected "${2:?symbol required}" --depth 2 --graph "$graph" | head -n 40 ;;
+  explain)  need_graph; graphify explain "${2:?symbol required}" --graph "$graph" | head -n 40 ;;
+  *) echo "usage: ya-graph status|update|q <question> [budget]|affected <symbol>|explain <symbol>" >&2; exit 1 ;;
+esac

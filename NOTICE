@@ -1,0 +1,22 @@
+Yannn Agent adapts (shortens and rewrites) instructions from these MIT-licensed projects:
+
+- Superpowers, Copyright (c) Jesse Vincent. https://github.com/obra/superpowers
+  skills/brainstorm (look before asking, one question at a time, approaches),
+  agents/reproducer.md (root cause before fix), agents/worker.md (evidence before
+  claims, tdd flag)
+
+- Matt Pocock's skills, Copyright (c) 2026 Matt Pocock. https://github.com/mattpocock/skills
+  skills/grill (design tree, frontier rounds, recommended answers)
+
+- andrej-karpathy-skills, forrestchang. https://github.com/forrestchang/andrej-karpathy-skills
+  skills/brainstorm and skills/grill (think before coding), agents/worker.md (surgical
+  changes), skills/plan (goal-driven checks)
+
+Listed in this marketplace and installed from their own repositories, not bundled:
+- ponytail (MIT), Dietrich Gebert. https://github.com/DietrichGebert/ponytail
+  Required dependency.
+- taste-skill (MIT), leonxlnx. https://github.com/Leonxlnx/taste-skill
+  Optional, for landing pages.
+
+Called at runtime if the user installs it:
+- graphify (MIT). https://github.com/safishamsi/graphify

@@ -1,0 +1,32 @@
+{
+  "name": "yannn-agent",
+  "displayName": "Yannn Agent",
+  "version": "0.3.0",
+  "description": "Token-efficient think-then-build workflow: brainstorm, grill and plan in your session, then an Opus router hands tickets to Sonnet workers in worktrees, with Haiku for search and tests. Ponytail keeps the code small.",
+  "author": {
+    "name": "mdchrstian",
+    "url": "https://github.com/mdchrstian"
+  },
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "planning",
+    "grill",
+    "subagents",
+    "worktree",
+    "token-efficiency"
+  ],
+  "dependencies": [
+    "ponytail"
+  ],
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Reply language",
+      "description": "Language the router and the brainstorm, grill and plan skills use with you.",
+      "default": "Bahasa Indonesia"
+    }
+  },
+  "homepage": "https://github.com/mdchrstian/yannn-agent",
+  "repository": "https://github.com/mdchrstian/yannn-agent"
+}
